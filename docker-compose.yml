@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4400
+    ports:
+      - "4400:4400"
+    volumes:
+      - ./data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    init: true
+    ipc: host
+    restart: unless-stopped

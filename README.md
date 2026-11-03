@@ -20,6 +20,16 @@ There are no accounts or sign-in: everyone who can open the app can use it. The 
 this computer (127.0.0.1). To let teammates reach it, start it with `HOST=0.0.0.0 npm start`, and only do that
 on a trusted network, since there is no login protecting it.
 
+### Docker
+
+```bash
+cp .env.example .env        # set ANTHROPIC_API_KEY and/or OPENAI_API_KEY
+docker compose up -d --build  # http://localhost:4400
+```
+
+The port is published on 127.0.0.1 only; edit `ports` in `docker-compose.yml` to expose it further. Data is kept in `./data`.
+The `claude` CLI is not in the image, so use API keys. To test a site running on the host, use `host.docker.internal` instead of `localhost`.
+
 ### AI providers
 
 | Provider | Needs | Billing |
