@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Page } from 'playwright';
 import { setting } from '../config.js';
-import type { Bug, ResultStatus } from '../types.js';
+import type { BlockedReason, Bug, ResultStatus } from '../types.js';
 import { BrowserSession, gotoWithRetry, waitForSettled, type SessionConfig } from './session.js';
 
 export interface CheckResult {
@@ -16,6 +16,7 @@ export interface CheckResult {
   actual: string;
   expected: string;
   bug: Bug | null;
+  blockedReason?: BlockedReason;
   steps: string[];
 }
 
@@ -96,7 +97,8 @@ export async function visitPage(url: string, run: string[], config: SessionConfi
       if (violations instanceof Error) {
         const expected = 'No serious or critical accessibility issues (axe-core)';
         checks.push({ check: 'a11y', title: 'Accessibility', expected, status: 'blocked', bug: null, steps: [`Open ${url}`, `Check: ${expected}`],
-          actual: `The accessibility check could not run on this page: ${violations.message.split('\n')[0]}` });
+          actual: `The accessibility check could not run on this page: ${violations.message.split('\n')[0]}`,
+          blockedReason: { category: 'automation', reason: `axe-core could not run on this page: ${violations.message.split('\n')[0]}` } });
       } else {
         add('a11y', 'Accessibility', violations.length ? `${violations.length} serious or critical issue(s):\n${violations.join('\n')}` : null,
           'No serious or critical accessibility issues (axe-core)');

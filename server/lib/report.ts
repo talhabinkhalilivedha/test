@@ -3,7 +3,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ROOT } from '../config.js';
-import type { PageConfig, Project, Run, TestResult } from '../types.js';
+import { BLOCKED_CATEGORIES, type PageConfig, type Project, type Run, type TestResult } from '../types.js';
 
 const STYLES = resolve(ROOT, 'web/src/styles.css');
 
@@ -60,6 +60,11 @@ function resultHtml(r: TestResult, dir: string): string {
           <div class="row between"><b>Bug: ${esc(r.bug.title)}</b><span class="badge ${r.bug.severity === 'critical' || r.bug.severity === 'major' ? 'fail' : 'warn'}">${esc(r.bug.severity)}</span></div>
           ${r.bug.stepsToReproduce.length ? `<div class="small"><div class="section-title">How to reproduce</div><ol class="steps">${r.bug.stepsToReproduce.map((s) => `<li>${esc(s)}</li>`).join('')}</ol></div>` : ''}
         </div>` : '';
+  const blocked = r.blockedReason ? `
+        <div class="blocked-reason stack tight">
+          <div class="row between"><b>Why it was not tested</b><span class="badge warn">${esc(BLOCKED_CATEGORIES[r.blockedReason.category] ?? r.blockedReason.category)}</span></div>
+          <div style="white-space:pre-wrap">${esc(r.blockedReason.reason)}</div>
+        </div>` : '';
   return `
   <details class="result ${r.status}">
     <summary>
@@ -67,7 +72,7 @@ function resultHtml(r: TestResult, dir: string): string {
       <span>
         <span style="font-weight:550">${esc(r.title)}</span>
         ${r.classification === 'flaky' ? '<span class="badge warn" style="margin-left:6px" title="Failed once, then passed when checked again">unstable</span>' : ''}
-        ${r.status !== 'passed' ? `<div class="small muted">${esc(r.bug?.title ?? r.actual)}</div>` : ''}
+        ${r.status !== 'passed' ? `<div class="small muted">${esc(r.bug?.title ?? (r.blockedReason ? `Not tested: ${r.blockedReason.reason}` : r.actual))}</div>` : ''}
       </span>
       <span class="small faint nowrap how">${HOW[r.mode]}</span>
       <span class="faint chev">${ICON.chevron}</span>
@@ -82,6 +87,7 @@ function resultHtml(r: TestResult, dir: string): string {
       </div>
       <div class="stack">
         <div><div class="section-title">Expected</div><div style="white-space:pre-wrap">${esc(r.expected || '—')}</div></div>
+        ${blocked}
         <div><div class="section-title">What happened</div><div style="white-space:pre-wrap">${esc(r.actual || '—')}</div></div>
         ${bug}
         ${shot ? `<img class="shot" src="${shot}" alt="Screenshot of ${esc(r.title)}" loading="lazy">` : ''}

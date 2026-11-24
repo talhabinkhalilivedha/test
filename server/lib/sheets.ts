@@ -1,7 +1,7 @@
 // CSV / Excel: importing a QA's test cases, the sample template, and exporting run results.
 import ExcelJS from 'exceljs';
 import type { CaseInput } from '../db.js';
-import type { PageConfig, TestResult } from '../types.js';
+import { BLOCKED_CATEGORIES, type PageConfig, type TestResult } from '../types.js';
 
 export const CASE_COLUMNS = ['Test ID', 'Title', 'Category', 'Priority', 'Preconditions', 'Steps', 'Expected Result', 'Test Data'] as const;
 
@@ -165,7 +165,7 @@ function styleSheet(sheet: ExcelJS.Worksheet) {
 }
 
 const RESULT_COLUMNS = ['Page', 'Test ID', 'Title', 'Category', 'How', 'Status', 'Classification', 'Steps performed', 'Expected', 'Actual',
-  'Bug title', 'Severity', 'Duration (s)', 'Cost (USD)', 'Model'];
+  'Bug title', 'Severity', 'Not tested because', 'Not tested: details', 'Duration (s)', 'Cost (USD)', 'Model'];
 
 function resultRows(results: TestResult[], pages: PageConfig[]): unknown[][] {
   const pageName = (id: string) => { const p = pages.find((x) => x.id === id); return p ? p.name || p.url : ''; };
@@ -173,7 +173,8 @@ function resultRows(results: TestResult[], pages: PageConfig[]): unknown[][] {
   return results.map((r) => [
     pageName(r.pageId), r.ref, r.title, r.category, how[r.mode], r.status, r.classification ?? '',
     r.steps.filter((s) => s.ok || r.status !== 'passed').map((s, i) => `${i + 1}. ${s.text}${s.ok ? '' : ` (failed: ${s.error ?? ''})`}`).join('\n'),
-    r.expected, r.actual, r.bug?.title ?? '', r.bug?.severity ?? '', (r.durationMs / 1000).toFixed(1), r.costUsd.toFixed(4), r.model,
+    r.expected, r.actual, r.bug?.title ?? '', r.bug?.severity ?? '',
+    r.blockedReason ? BLOCKED_CATEGORIES[r.blockedReason.category] ?? r.blockedReason.category : '', r.blockedReason?.reason ?? '', (r.durationMs / 1000).toFixed(1), r.costUsd.toFixed(4), r.model,
   ]);
 }
 
@@ -182,7 +183,7 @@ export async function exportResults(format: 'csv' | 'xlsx', results: TestResult[
   if (format === 'csv') return Buffer.from(toCsv([RESULT_COLUMNS, ...rows]));
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Results');
-  sheet.columns = RESULT_COLUMNS.map((h) => ({ header: h, width: ['Steps performed', 'Expected', 'Actual'].includes(h) ? 50 : h === 'Title' ? 40 : 14 }));
+  sheet.columns = RESULT_COLUMNS.map((h) => ({ header: h, width: ['Steps performed', 'Expected', 'Actual', 'Not tested: details'].includes(h) ? 50 : h === 'Title' ? 40 : 14 }));
   rows.forEach((r) => sheet.addRow(r));
   styleSheet(sheet);
   const colors: Record<string, string> = { passed: 'FFDCFCE7', failed: 'FFFEE2E2', blocked: 'FFFEF3C7', skipped: 'FFF1F5F9' };

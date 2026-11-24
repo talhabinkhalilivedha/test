@@ -165,6 +165,24 @@ export interface Bug {
 
 export type ResultStatus = 'passed' | 'failed' | 'blocked' | 'skipped';
 
+/** Why a test could not be tested (blocked or skipped). */
+export const BLOCKED_CATEGORIES = {
+  access: 'Needs another login, role or permission',
+  'test-data': 'A precondition or the test data it needs is missing',
+  external: 'Needs something outside the browser (email, SMS, files, another system)',
+  automation: 'The test agent could not operate the page',
+  'time-limit': 'Ran out of time or steps',
+  'cost-cap': "The run's cost cap was reached",
+  other: 'Other',
+} as const;
+export type BlockedCategory = keyof typeof BLOCKED_CATEGORIES;
+
+export interface BlockedReason {
+  category: BlockedCategory;
+  /** What could not be done and why, in a sentence. */
+  reason: string;
+}
+
 export interface TestResult {
   id: string;
   runId: string;
@@ -180,6 +198,8 @@ export interface TestResult {
   expected: string;
   actual: string;
   bug: Bug | null;
+  /** Set when the test could not be tested (blocked or skipped): why. */
+  blockedReason: BlockedReason | null;
   /** `app-bug`: failed twice. `flaky`: failed once, then passed. `blocked`: the agent could not carry it out. */
   classification: 'app-bug' | 'flaky' | null;
   screenshot: string | null;

@@ -22,8 +22,9 @@ import { replay } from '../browser/replay.js';
 import type { SessionConfig } from '../browser/session.js';
 import {
   CHECKLIST, DEFAULT_MODELS, type PageConfig, type PerformedStep, type Project, type Run, type RunOptions, type RunSummary,
-  type TestCase, type TestResult,
+  type TestCase, type TestResult, type BlockedReason,
 } from '../types.js';
+import type { ResultOutput } from '../browser/schemas.js';
 import { events } from './events.js';
 
 class FatalError extends Error {}
@@ -120,7 +121,7 @@ export async function executeRun(runId: string, stopSignal: AbortSignal, waitFor
       for (const c of visit.checks) {
         addResult({
           testCaseId: null, pageId: page.id, ref: `CHK-${c.check}`, title: c.title, category: 'automatic', status: c.status, mode: 'check',
-          steps: c.steps.map((text) => ({ text, ok: true })), expected: c.expected, actual: c.actual, bug: c.bug, classification: null,
+          steps: c.steps.map((text) => ({ text, ok: true })), expected: c.expected, actual: c.actual, bug: c.bug, blockedReason: c.blockedReason ?? null, classification: null,
           screenshot: visit.screenshot && c.check === 'responsive' ? rel(visit.screenshot) : null,
           costUsd: 0, durationMs: Math.round((Date.now() - started) / Math.max(1, visit.checks.length)), model: '',
         });
@@ -230,7 +231,8 @@ export async function executeRun(runId: string, stopSignal: AbortSignal, waitFor
         if (!budgetLeft()) break;
         log(`${page.name || page.url}: deleting pw-test- records`);
         const out = await agent({ model: o.fastModel, mode: 'cleanup', system: CLEANUP_SYSTEM, prompt: cleanupPrompt(page.url), startUrl: page.url, name: `cleanup-${slug(page.name || page.url)}` }, 'cleanup');
-        log(`  ${out.state?.result?.actual ?? out.error ?? 'cleanup finished'}`);
+        const r = out.state?.result;
+        log(`  ${r?.actual ?? out.error ?? 'cleanup finished'}${r?.blockedReason ? ` (not finished: ${r.blockedReason.reason})` : ''}`);
       }
     }
 
@@ -301,6 +303,7 @@ export async function executeRun(runId: string, stopSignal: AbortSignal, waitFor
     if (!budgetLeft()) {
       return addResult(baseResult(page, test, {
         status: 'skipped', mode: 'ai', actual: note ? `${note}. Not re-run: the run's cost cap was reached.` : "Not run: the run's cost cap was reached.",
+        blockedReason: { category: 'cost-cap', reason: `The run's cost cap ($${o.costCapUsd}) was reached before this test could run.` },
         durationMs: Date.now() - started,
       }));
     }
@@ -321,7 +324,7 @@ export async function executeRun(runId: string, stopSignal: AbortSignal, waitFor
     // The fast model got stuck: the strong model tries once.
     if ((!verdict || verdict.status === 'blocked') && strongAvailable && budgetLeft()) {
       log(`  ${test.ref}: ${verdict ? `blocked (${verdict.actual})` : `no verdict (${out.error ?? 'unknown'})`}; retrying with ${o.strongModel}`);
-      out = await attempt(o.strongModel, verdict ? `blocked: ${verdict.actual}` : undefined);
+      out = await attempt(o.strongModel, verdict ? `blocked: ${verdict.blockedReason?.reason ?? verdict.actual}` : undefined);
       cost += out.costUsd;
       model = o.strongModel;
       verdict = out.state?.result ?? verdict;
@@ -356,6 +359,7 @@ export async function executeRun(runId: string, stopSignal: AbortSignal, waitFor
       status, mode: 'ai', steps: performed, model, costUsd: cost, classification, durationMs: Date.now() - started,
       actual: [verdict?.actual ?? out.error ?? 'The agent did not report a result', verdict?.notes].filter(Boolean).join(' · '),
       screenshot: state?.screenshot ? rel(state.screenshot) : null,
+      blockedReason: status === 'blocked' ? blockedReasonFor(verdict, out) : null,
       bug: status === 'failed' && verdict?.bug ? {
         ...verdict.bug, stepsToReproduce: performed.filter((s) => s.ok).map((s) => s.text),
       } : null,
@@ -395,8 +399,18 @@ export function rerunCase(rerunOf: string, caseId: string): TestCase | null {
 function baseResult(page: PageConfig, test: TestCase, r: Partial<TestResult> & Pick<TestResult, 'status' | 'mode' | 'actual' | 'durationMs'>): Omit<TestResult, 'id' | 'createdAt' | 'runId'> {
   return {
     testCaseId: test.id, pageId: page.id, ref: test.ref, title: test.title, category: test.category, expected: test.expected,
-    steps: [], bug: null, classification: null, screenshot: null, costUsd: 0, model: '', ...r,
+    steps: [], bug: null, blockedReason: null, classification: null, screenshot: null, costUsd: 0, model: '', ...r,
   };
+}
+
+/** Why an AI-run test was blocked: the agent's own reason, or else why the agent stopped without one. */
+function blockedReasonFor(verdict: ResultOutput | undefined, out: AgentOutcome): BlockedReason {
+  if (verdict?.blockedReason?.reason.trim()) return verdict.blockedReason;
+  if (verdict) return { category: 'other', reason: verdict.actual || 'The agent reported the test as blocked without saying why.' };
+  if (!out.error || /^Stopped after/.test(out.error)) {
+    return { category: 'time-limit', reason: `The agent stopped before finishing the test${out.error ? ` (${out.error.toLowerCase()})` : ' (it used all its steps)'} and reported no result.` };
+  }
+  return { category: 'automation', reason: `The agent could not run the test: ${out.error}` };
 }
 
 /** Automatic checks cost nothing, so every page gets all of them. */

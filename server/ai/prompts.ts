@@ -22,7 +22,7 @@ How to work:
 - Check every expected result with verify. A test only passes when its expected results were verified with verify.
 - When a step does not match the page exactly (different label, element inside a menu or dialog), use the closest equivalent. After 3 failed attempts at the same step, stop and report blocked.
 - Verdict: passed = every expected result verified. failed = the site behaved wrongly (wrong result, error, missing message, broken feature). blocked = you could not carry out the steps or a precondition is not met.
-- Finish by calling report_result exactly once. A failed test needs a bug with a clear title, severity, expected and actual.
+- Finish by calling report_result exactly once. A failed test needs a bug with a clear title, severity, expected and actual. A blocked test needs a blockedReason: its category and one sentence naming the step or check you could not do and why (a missing login or role, missing test data, something outside the browser such as email, a control you could not operate). In actual, still say what you did verify.
 - Be economical: no screenshots unless the test is about visuals, no extra exploring beyond the test.`;
 
 export const PLAN_SYSTEM = `You are a senior QA engineer. You design test cases for ONE page of a web application by exploring it in a real browser, using tools.
@@ -42,7 +42,7 @@ How to work:
 
 export const CLEANUP_SYSTEM = `You are a QA engineer cleaning up after a test run, in a real browser, using tools.
 Find records on this page whose name contains "pw-test-" and delete them through the site's normal delete action. Delete nothing else.
-Finish by calling report_result: status passed when all were deleted (or none existed), blocked otherwise, and in actual say what you deleted.`;
+Finish by calling report_result: status passed when all were deleted (or none existed), blocked otherwise (with a blockedReason saying what could not be deleted and why), and in actual say what you deleted.`;
 
 const DEPTH: Record<Depth, string> = {
   smoke: 'Smoke: only the few most important checks that the page works (3 to 5 tests).',

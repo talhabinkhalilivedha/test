@@ -77,6 +77,10 @@ if (config.mode !== 'plan') {
     (a) => session.verify(a.kind, a));
   tool('report_result', 'Finish the test with your verdict. Call exactly once, at the end.', ResultSchema.shape, async (a) => {
     if (a.status === 'failed' && !a.bug) throw new ToolError('A failed test needs a bug: title, severity, expected and actual.');
+    if (a.status === 'blocked' && !a.blockedReason?.reason.trim()) {
+      throw new ToolError('A blocked test needs a blockedReason: its category and one sentence on which step could not be done and why.');
+    }
+    if (a.status !== 'blocked') delete a.blockedReason;
     state.result = a;
     if (a.status !== 'passed') state.screenshot = await session.screenshot('failure').catch(() => undefined);
     return 'Result saved. You are done: stop now.';

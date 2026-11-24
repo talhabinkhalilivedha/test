@@ -48,7 +48,7 @@ export function wrapUpNote(mode: AgentMode, turn: number): string | null {
   if (LIMITS[mode].turns - turn !== WRAP_UP_TURNS) return null;
   return mode === 'plan'
     ? `Only ${WRAP_UP_TURNS} turns are left. Stop exploring and call report_plan now with the features and test cases you have.`
-    : `Only ${WRAP_UP_TURNS} turns are left. Finish now and call report_result with what you have found (blocked if you could not complete the steps).`;
+    : `Only ${WRAP_UP_TURNS} turns are left. Finish now and call report_result with what you have found (blocked if you could not complete the steps, with a blockedReason naming the steps not done).`;
 }
 
 /** The tools that end an agent's work: once one of them succeeds there is nothing left to do. */

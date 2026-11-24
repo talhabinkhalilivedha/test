@@ -53,6 +53,8 @@ db.exec(`
 `);
 // Added later: a copy of the test case as it ran, so it can be re-run after the page was planned again.
 if (!(db.prepare('PRAGMA table_info(results)').all() as Row[]).some((c) => c.name === 'test_case')) db.exec('ALTER TABLE results ADD COLUMN test_case TEXT');
+// Added later: why a blocked or skipped test could not be tested (JSON: category + reason).
+if (!(db.prepare('PRAGMA table_info(results)').all() as Row[]).some((c) => c.name === 'blocked_reason')) db.exec('ALTER TABLE results ADD COLUMN blocked_reason TEXT');
 
 const now = () => new Date().toISOString();
 export const newId = () => randomUUID().replace(/-/g, '').slice(0, 16);
@@ -253,7 +255,7 @@ export const runs = {
 const toResult = (r: Row): TestResult => ({
   id: r.id, runId: r.run_id, testCaseId: r.test_case_id, pageId: r.page_id, ref: r.ref, title: r.title, category: r.category,
   status: r.status, mode: r.mode, steps: json(r.steps, []), expected: r.expected, actual: r.actual, bug: json(r.bug, null),
-  classification: r.classification, screenshot: r.screenshot, costUsd: r.cost_usd, durationMs: r.duration_ms, model: r.model,
+  blockedReason: json(r.blocked_reason, null), classification: r.classification, screenshot: r.screenshot, costUsd: r.cost_usd, durationMs: r.duration_ms, model: r.model,
   createdAt: r.created_at,
 });
 
@@ -262,10 +264,10 @@ export const results = {
   add(r: Omit<TestResult, 'id' | 'createdAt'>, testCase?: TestCase): TestResult {
     const id = newId();
     db.prepare(`INSERT INTO results (id, run_id, test_case_id, page_id, ref, title, category, status, mode, steps, expected, actual, bug,
-      classification, screenshot, cost_usd, duration_ms, model, created_at, test_case) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      classification, screenshot, cost_usd, duration_ms, model, created_at, test_case, blocked_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       id, r.runId, r.testCaseId, r.pageId, r.ref, r.title, r.category, r.status, r.mode, JSON.stringify(r.steps), r.expected,
       r.actual, r.bug ? JSON.stringify(r.bug) : null, r.classification, r.screenshot, r.costUsd, r.durationMs, r.model, now(),
-      testCase ? JSON.stringify({ ...testCase, recording: null }) : null);
+      testCase ? JSON.stringify({ ...testCase, recording: null }) : null, r.blockedReason ? JSON.stringify(r.blockedReason) : null);
     return { ...r, id, createdAt: now() };
   },
   /** The test case as it was when this run tested it. */

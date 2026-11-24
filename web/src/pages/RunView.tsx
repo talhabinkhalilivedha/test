@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { PageConfig, Run, TestResult } from '../../../server/types';
+import { BLOCKED_CATEGORIES, type PageConfig, type Run, type TestResult } from '../../../server/types';
 import { get, post, type RunDetail, type RunEvent } from '../api';
 import { go } from '../App';
 import { CasesSection } from './ProjectView';
@@ -291,7 +291,7 @@ function ResultRow({ run, r, open, toggle, onRerun, picked, onPick }: {
         <td>
           <span style={{ fontWeight: 550 }}>{r.title}</span>
           {r.classification === 'flaky' && <span className="badge warn" style={{ marginLeft: 6 }} title="Failed once, then passed when checked again">unstable</span>}
-          {r.status !== 'passed' && <div className="small muted ellipsis" style={{ maxWidth: 700 }}>{r.bug?.title ?? r.actual}</div>}
+          {r.status !== 'passed' && <div className="small muted ellipsis" style={{ maxWidth: 700 }}>{r.bug?.title ?? (r.blockedReason ? `Not tested: ${r.blockedReason.reason}` : r.actual)}</div>}
         </td>
         <td className="small faint nowrap" style={{ width: 150 }}>{HOW[r.mode]}</td>
         <td className="faint" style={{ width: 30, transform: open ? 'rotate(90deg)' : undefined }}>{Icon.chevron}</td>
@@ -325,6 +325,12 @@ function ResultDetail({ run, r, onRerun }: { run: Run; r: TestResult; onRerun?: 
       </div>
       <div className="stack">
         <div><div className="section-title">Expected</div><div style={{ whiteSpace: 'pre-wrap' }}>{r.expected || '—'}</div></div>
+        {r.blockedReason && (
+          <div className="blocked-reason stack tight">
+            <div className="row between"><b>Why it was not tested</b><span className="badge warn">{BLOCKED_CATEGORIES[r.blockedReason.category] ?? r.blockedReason.category}</span></div>
+            <div style={{ whiteSpace: 'pre-wrap' }}>{r.blockedReason.reason}</div>
+          </div>
+        )}
         <div><div className="section-title">What happened</div><div style={{ whiteSpace: 'pre-wrap' }}>{r.actual || '—'}</div></div>
         {r.bug && r.status === 'failed' && (
           <div className="bug stack tight">

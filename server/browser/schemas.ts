@@ -1,6 +1,7 @@
 // Shapes shared by the MCP server (which validates them) and the run pipeline (which reads them).
 import { z } from 'zod';
 import type { BrowserSession, SessionConfig } from './session.js';
+import { BLOCKED_CATEGORIES, type BlockedCategory } from '../types.js';
 
 export type AgentMode = 'plan' | 'execute' | 'cleanup';
 
@@ -31,6 +32,11 @@ export const ResultSchema = z.object({
     expected: z.string(),
     actual: z.string(),
   }).optional().describe('Required when status is failed'),
+  blockedReason: z.object({
+    category: z.enum(Object.keys(BLOCKED_CATEGORIES) as [BlockedCategory, ...BlockedCategory[]]).describe(
+      Object.entries(BLOCKED_CATEGORIES).filter(([k]) => k !== 'cost-cap').map(([k, v]) => `${k} = ${v}`).join('; ')),
+    reason: z.string().describe('One sentence: which step or check you could not do, and why (e.g. "Step 5 needs a Requester login; only an admin account is available")'),
+  }).optional().describe('Required when status is blocked: why the test could not be carried out'),
   notes: z.string().optional(),
 });
 export type ResultOutput = z.infer<typeof ResultSchema>;
