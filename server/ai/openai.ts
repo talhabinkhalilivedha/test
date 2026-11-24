@@ -17,6 +17,7 @@ export async function runOpenAIAgent(task: AgentTask, configFile: string): Promi
   let costUsd = 0;
   let turns = 0;
   let tier: 'flex' | 'default' = 'flex';
+  let nudges = 0;
   const browser = await connectBrowser(configFile, transcript).catch((e: Error) => e);
   if (browser instanceof Error) return { ok: false, error: `Could not start the browser: ${browser.message}`, state: null, costUsd, turns };
 
@@ -59,7 +60,24 @@ export async function runOpenAIAgent(task: AgentTask, configFile: string): Promi
       transcript({ type: 'response', output: response.output, usage: u });
 
       const calls = response.output.filter((item) => item.type === 'function_call');
-      if (!calls.length) return { ok: true, state: null, costUsd, turns };
+      if (!calls.length) {
+        // GPT models sometimes write their report as a text message instead of calling the finish tool.
+        // Save it through the tool when it is valid JSON, otherwise remind the model to call the tool.
+        const finishTool = task.mode === 'plan' ? 'report_plan' : 'report_result';
+        const text = response.output.flatMap((o) => (o.type === 'message' ? o.content : []))
+          .map((c) => (c.type === 'output_text' ? c.text : '')).join('').trim();
+        const report = parseJsonObject(text);
+        if (report) {
+          const r = await browser.call(finishTool, report);
+          transcript({ type: 'salvaged-report', tool: finishTool, isError: r.isError, content: r.content });
+          if (!r.isError) return { ok: true, state: null, costUsd, turns };
+        }
+        if (++nudges > MAX_NUDGES) {
+          return { ok: false, error: `The agent ended without calling ${finishTool}`, state: null, costUsd, turns };
+        }
+        input = [{ role: 'user', content: `You have not finished: call the ${finishTool} tool now (a tool call, not a text message).` }];
+        continue;
+      }
 
       input = [];
       let finished = false;
@@ -88,6 +106,23 @@ export async function runOpenAIAgent(task: AgentTask, configFile: string): Promi
     return { ok: false, fatal, error: `OpenAI error: ${e instanceof Error ? e.message : String(e)}`, state: null, costUsd, turns };
   } finally {
     await browser.close();
+  }
+}
+
+/** Times the agent is reminded to call its finish tool after replying with text only. */
+const MAX_NUDGES = 2;
+
+/** The JSON object in a text reply (bare or in a ```json fence), or null. */
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  const body = text.match(/```(?:json)?\s*([\s\S]*?)```/)?.[1] ?? text;
+  const start = body.indexOf('{');
+  const end = body.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    const v = JSON.parse(body.slice(start, end + 1));
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
+  } catch {
+    return null;
   }
 }
 
