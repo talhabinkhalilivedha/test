@@ -97,7 +97,10 @@ export interface ToolCallResult {
 /** MCP client connected to a fresh browser server, for the API providers that run the loop themselves. */
 export async function connectBrowser(configFile: string, transcript: (entry: unknown) => void) {
   const client = new Client({ name: 'ai-qa', version: '1.0.0' });
-  const transport = new StdioClientTransport({ ...mcpCommand(configFile), cwd: ROOT, stderr: 'pipe' });
+  // Pass our whole environment: by default the SDK only passes HOME, PATH and a few others, which drops
+  // PLAYWRIGHT_BROWSERS_PATH (set by the Playwright Docker image), so the browser could not be found.
+  const env = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined));
+  const transport = new StdioClientTransport({ ...mcpCommand(configFile), cwd: ROOT, stderr: 'pipe', env });
   transport.stderr?.on('data', (chunk: Buffer) => {
     const text = chunk.toString();
     if (!text.includes('ExperimentalWarning')) transcript({ type: 'mcp-stderr', text });
