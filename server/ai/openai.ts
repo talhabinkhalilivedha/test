@@ -18,17 +18,19 @@ export async function runOpenAIAgent(task: AgentTask, configFile: string): Promi
   let turns = 0;
   let tier: 'flex' | 'default' = 'flex';
   let nudges = 0;
+  /** Why the last report_plan/report_result call was rejected, for the run log. */
+  let finishError = '';
   const browser = await connectBrowser(configFile, transcript).catch((e: Error) => e);
   if (browser instanceof Error) return { ok: false, error: `Could not start the browser: ${browser.message}`, state: null, costUsd, turns };
 
   try {
-    const tools: FunctionTool[] = browser.tools.map((t) => ({
-      type: 'function',
-      name: t.name,
-      description: t.description ?? '',
-      parameters: { properties: {}, ...t.inputSchema, type: 'object' },
-      strict: false,
-    }));
+    // The finish tools use strict mode, so the model's report always matches their schema (a GPT plan with
+    // e.g. steps as a list was rejected and lost). The other tools stay loose.
+    const tools: FunctionTool[] = browser.tools.map((t) => {
+      const strict = FINISH_TOOLS.includes(t.name);
+      const schema = { properties: {}, ...t.inputSchema, type: 'object' } as JsonSchema;
+      return { type: 'function', name: t.name, description: t.description ?? '', parameters: strict ? strictSchema(schema) : schema, strict };
+    });
     let input: ResponseInputItem[] = [{ role: 'user', content: task.prompt }];
     let previous: string | undefined;
     transcript({ type: 'start', model: task.model, prompt: task.prompt });
@@ -73,7 +75,8 @@ export async function runOpenAIAgent(task: AgentTask, configFile: string): Promi
           if (!r.isError) return { ok: true, state: null, costUsd, turns };
         }
         if (++nudges > MAX_NUDGES) {
-          return { ok: false, error: `The agent ended without calling ${finishTool}`, state: null, costUsd, turns };
+          const why = finishError ? `${finishTool} was rejected: ${finishError}` : `the agent ended without calling ${finishTool}`;
+          return { ok: false, error: why[0].toUpperCase() + why.slice(1), state: null, costUsd, turns };
         }
         input = [{ role: 'user', content: `You have not finished: call the ${finishTool} tool now (a tool call, not a text message).` }];
         continue;
@@ -82,13 +85,20 @@ export async function runOpenAIAgent(task: AgentTask, configFile: string): Promi
       input = [];
       let finished = false;
       for (const call of calls) {
+        const isFinish = FINISH_TOOLS.includes(call.name);
         let args: Record<string, unknown> = {};
         try {
           args = JSON.parse(call.arguments || '{}');
         } catch { /* the tool reports the missing arguments */ }
+        if (isFinish) args = dropNulls(args) as Record<string, unknown>;
         task.log(describeCall(call.name, args));
         const r = await browser.call(call.name, args);
-        if (FINISH_TOOLS.includes(call.name) && !r.isError) finished = true;
+        if (isFinish && !r.isError) finished = true;
+        if (isFinish && r.isError) {
+          finishError = r.content.map((c) => c.text ?? '').join(' ').slice(0, 300);
+          task.log(`${call.name} rejected: ${finishError}`);
+          transcript({ type: 'finish-rejected', tool: call.name, error: finishError, arguments: call.arguments.slice(0, 4000) });
+        }
         const output = r.content.map((c) => (c.type === 'image' && c.data
           ? { type: 'input_image' as const, image_url: `data:${c.mimeType ?? 'image/jpeg'};base64,${c.data}`, detail: 'low' as const }
           : { type: 'input_text' as const, text: `${r.isError ? 'Tool error: ' : ''}${c.text || '(no output)'}` }));
@@ -107,6 +117,38 @@ export async function runOpenAIAgent(task: AgentTask, configFile: string): Promi
   } finally {
     await browser.close();
   }
+}
+
+type JsonSchema = { type?: unknown; properties?: Record<string, JsonSchema>; required?: string[]; items?: JsonSchema; [k: string]: unknown };
+
+/** An OpenAI strict-mode copy of a JSON schema: closed objects, every property required, optional ones nullable. */
+export function strictSchema(s: JsonSchema): JsonSchema {
+  const { $schema: _, ...rest } = s;
+  const out: JsonSchema = { ...rest };
+  if (s.items) out.items = strictSchema(s.items);
+  for (const key of ['anyOf', 'oneOf'] as const) {
+    if (Array.isArray(s[key])) out[key] = (s[key] as JsonSchema[]).map(strictSchema);
+  }
+  if (s.type === 'object' || s.properties) {
+    const props = s.properties ?? {};
+    const required = new Set(s.required ?? []);
+    out.properties = Object.fromEntries(Object.entries(props).map(([k, v]) => {
+      const p = strictSchema(v);
+      return [k, required.has(k) ? p : { anyOf: [p, { type: 'null' }] }];
+    }));
+    out.required = Object.keys(props);
+    out.additionalProperties = false;
+  }
+  return out;
+}
+
+/** Strict mode sends null for optional fields; our schemas expect them left out. */
+function dropNulls(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(dropNulls);
+  if (v && typeof v === 'object') {
+    return Object.fromEntries(Object.entries(v).filter(([, x]) => x !== null).map(([k, x]) => [k, dropNulls(x)]));
+  }
+  return v;
 }
 
 /** Times the agent is reminded to call its finish tool after replying with text only. */
